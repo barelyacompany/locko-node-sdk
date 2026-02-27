@@ -1,0 +1,39 @@
+{
+  "name": "locko-node-sdk",
+  "version": "1.0.0",
+  "description": "Node.js SDK for Locko secrets and environment variable management",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "lint": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/barelyacompany/locko-node-sdk.git"
+  },
+  "keywords": ["locko", "secrets", "env", "environment", "config"],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/barelyacompany/locko-node-sdk/issues"
+  },
+  "homepage": "https://github.com/barelyacompany/locko-node-sdk#readme",
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.0.0",
+    "@types/node-fetch": "^2.6.12",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "roots": ["<rootDir>/tests"]
+  }
+}
