@@ -1,6 +1,6 @@
 # locko
 
-Official Node.js SDK for [Locko](https://barelyacompany.com) — a secrets and config management tool.
+Official Node.js SDK for [Locko](https://locko.barelyacompany.com) — a secrets and config management tool.
 
 ## Requirements
 
