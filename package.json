@@ -1,5 +1,5 @@
 {
-  "name": "locko",
+  "name": "@barelyacompany/locko",
   "version": "1.0.0",
   "description": "Node.js SDK for Locko — secrets and config management",
   "main": "dist/index.js",
