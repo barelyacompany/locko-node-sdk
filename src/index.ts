@@ -1,4 +1,4 @@
-const DEFAULT_SERVER_URL = "https://api-locko.barelyacompany.com/api";
+const API_URL = "https://api-locko.barelyacompany.com/api/api-keys/config";
 
 /**
  * Represents a single config/secret entry returned by the Locko API.
@@ -7,19 +7,6 @@ export interface ConfigEntry {
   key: string;
   value: string;
   secret: boolean;
-}
-
-/**
- * Options for constructing a LockoClient.
- */
-export interface LockoClientOptions {
-  /** Your Locko API key. */
-  apiKey: string;
-  /**
-   * Base URL of the Locko API server.
-   * Defaults to https://api-locko.barelyacompany.com/api
-   */
-  serverUrl?: string;
 }
 
 /**
@@ -40,22 +27,17 @@ export class LockoApiError extends Error {
  */
 export class LockoClient {
   private readonly apiKey: string;
-  private readonly serverUrl: string;
 
-  constructor(options: LockoClientOptions) {
-    if (!options.apiKey || options.apiKey.trim() === "") {
+  constructor(apiKey: string) {
+    if (!apiKey || apiKey.trim() === "") {
       throw new Error("Locko: apiKey is required and must not be empty.");
     }
-
-    this.apiKey = options.apiKey;
-    // Normalise: strip trailing slash so we can always append paths cleanly.
-    const base = options.serverUrl ?? DEFAULT_SERVER_URL;
-    this.serverUrl = base.replace(/\/+$/, "");
+    this.apiKey = apiKey;
   }
 
   /**
-   * Fetches all config entries from the Locko API and returns them as a
-   * flat key→value map (both secrets and plain variables).
+   * Fetches all config entries and returns them as a flat key→value map
+   * (both secrets and plain variables).
    */
   async getConfig(): Promise<Record<string, string>> {
     const entries = await this.fetchEntries();
@@ -63,8 +45,7 @@ export class LockoClient {
   }
 
   /**
-   * Fetches config entries and returns only those marked as secrets
-   * (`secret: true`) as a flat key→value map.
+   * Fetches config entries and returns only those marked as secrets (`secret: true`).
    */
   async getSecrets(): Promise<Record<string, string>> {
     const entries = await this.fetchEntries();
@@ -72,8 +53,7 @@ export class LockoClient {
   }
 
   /**
-   * Fetches config entries and returns only those NOT marked as secrets
-   * (`secret: false`) as a flat key→value map.
+   * Fetches config entries and returns only those not marked as secrets (`secret: false`).
    */
   async getVariables(): Promise<Record<string, string>> {
     const entries = await this.fetchEntries();
@@ -83,24 +63,7 @@ export class LockoClient {
   /**
    * Fetches all config entries and writes them into `process.env`.
    *
-   * Call this at the very top of your app entry point — before importing any
-   * modules that read from `process.env` (e.g. database clients, ORMs) — so
-   * that every downstream dependency sees the values immediately.
-   *
-   * Existing `process.env` keys are NOT overwritten by default. Pass
-   * `{ override: true }` to force-overwrite them.
-   *
-   * @example
-   * ```ts
-   * // index.ts
-   * import { createClient } from "locko";
-   *
-   * await createClient({ apiKey: process.env.LOCKO_API_KEY! }).injectIntoEnv();
-   *
-   * // Everything below now sees the Locko values in process.env
-   * const { DataSource } = await import("typeorm");
-   * const db = new DataSource({ url: process.env.DATABASE_URL });
-   * ```
+   * Existing `process.env` keys are NOT overwritten unless `{ override: true }` is passed.
    */
   async injectIntoEnv(options?: { override?: boolean }): Promise<void> {
     const entries = await this.fetchEntries();
@@ -117,11 +80,9 @@ export class LockoClient {
   // ---------------------------------------------------------------------------
 
   private async fetchEntries(): Promise<ConfigEntry[]> {
-    const url = `${this.serverUrl}/api-keys/config`;
-
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetch(API_URL, {
         method: "GET",
         headers: {
           "X-API-Key": this.apiKey,
@@ -183,10 +144,10 @@ function entriesToMap(entries: ConfigEntry[]): Record<string, string> {
  * ```ts
  * import { createClient } from "locko";
  *
- * const client = createClient({ apiKey: process.env.LOCKO_API_KEY! });
+ * const client = createClient(process.env.LOCKO_API_KEY!);
  * const config = await client.getConfig();
  * ```
  */
-export function createClient(options: LockoClientOptions): LockoClient {
-  return new LockoClient(options);
+export function createClient(apiKey: string): LockoClient {
+  return new LockoClient(apiKey);
 }
