@@ -14,24 +14,46 @@ npm install locko
 
 ## Quick start
 
+### Early initialisation (recommended)
+
+Call `injectIntoEnv()` at the very top of your app entry point — **before** any other imports that read from `process.env` (database clients, ORMs, HTTP servers, etc.). This writes every Locko value directly into `process.env` so the rest of your app boots with the correct config already in place.
+
+```ts
+// index.ts — must be the first file executed
+import { createClient } from "locko";
+
+await createClient({ apiKey: process.env.LOCKO_API_KEY! }).injectIntoEnv();
+
+// Dynamic imports after this point see the Locko values in process.env
+const { DataSource } = await import("typeorm");
+const db = new DataSource({ url: process.env.DATABASE_URL });
+await db.initialize();
+```
+
+By default, existing `process.env` keys are **not** overwritten. Pass `{ override: true }` to change that:
+
+```ts
+await client.injectIntoEnv({ override: true });
+```
+
+### Fetching config manually
+
+If you prefer to work with the values directly rather than writing to `process.env`:
+
 ```ts
 import { createClient } from "locko";
 
-const client = createClient({
-  apiKey: process.env.LOCKO_API_KEY!,
-});
+const client = createClient({ apiKey: process.env.LOCKO_API_KEY! });
 
-// All config entries (secrets + plain variables) as a flat map
+// All entries (secrets + plain variables) as a flat map
 const config = await client.getConfig();
 console.log(config.DATABASE_URL);
 
 // Only secret entries
 const secrets = await client.getSecrets();
-console.log(secrets.JWT_SECRET);
 
-// Only non-secret (plain variable) entries
+// Only plain (non-secret) variables
 const vars = await client.getVariables();
-console.log(vars.PORT);
 ```
 
 ## Configuration
@@ -93,6 +115,17 @@ Fetches config entries and returns only those where `secret: false`.
 ```ts
 const vars = await client.getVariables();
 // { DATABASE_URL: "postgres://...", PORT: "3000" }
+```
+
+---
+
+### `client.injectIntoEnv(options?)` → `Promise<void>`
+
+Fetches all entries and writes them into `process.env`. Existing keys are not overwritten unless `{ override: true }` is passed.
+
+```ts
+await client.injectIntoEnv();          // safe — won't clobber existing env
+await client.injectIntoEnv({ override: true }); // force-overwrite everything
 ```
 
 ---

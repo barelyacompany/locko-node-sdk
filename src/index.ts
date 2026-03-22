@@ -80,6 +80,38 @@ export class LockoClient {
     return entriesToMap(entries.filter((e) => e.secret === false));
   }
 
+  /**
+   * Fetches all config entries and writes them into `process.env`.
+   *
+   * Call this at the very top of your app entry point — before importing any
+   * modules that read from `process.env` (e.g. database clients, ORMs) — so
+   * that every downstream dependency sees the values immediately.
+   *
+   * Existing `process.env` keys are NOT overwritten by default. Pass
+   * `{ override: true }` to force-overwrite them.
+   *
+   * @example
+   * ```ts
+   * // index.ts
+   * import { createClient } from "locko";
+   *
+   * await createClient({ apiKey: process.env.LOCKO_API_KEY! }).injectIntoEnv();
+   *
+   * // Everything below now sees the Locko values in process.env
+   * const { DataSource } = await import("typeorm");
+   * const db = new DataSource({ url: process.env.DATABASE_URL });
+   * ```
+   */
+  async injectIntoEnv(options?: { override?: boolean }): Promise<void> {
+    const entries = await this.fetchEntries();
+    const override = options?.override ?? false;
+    for (const entry of entries) {
+      if (override || process.env[entry.key] === undefined) {
+        process.env[entry.key] = entry.value;
+      }
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
