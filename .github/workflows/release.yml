@@ -24,7 +24,7 @@ jobs:
       - name: Check version not already published
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          if npm view "locko@${VERSION}" version 2>/dev/null | grep -q .; then
+          if npm view "@barelyacompany/locko@${VERSION}" version 2>/dev/null | grep -q .; then
             echo "::error::Version ${VERSION} is already published on npm. Aborting."
             exit 1
           fi
