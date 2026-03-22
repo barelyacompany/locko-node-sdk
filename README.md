@@ -14,31 +14,7 @@ npm install locko
 
 ## Quick start
 
-### Early initialisation (recommended)
-
-Call `injectIntoEnv()` at the very top of your app entry point — **before** any other imports that read from `process.env` (database clients, ORMs, HTTP servers, etc.). This writes every Locko value directly into `process.env` so the rest of your app boots with the correct config already in place.
-
-```ts
-// index.ts — must be the first file executed
-import { createClient } from "locko";
-
-await createClient({ apiKey: process.env.LOCKO_API_KEY! }).injectIntoEnv();
-
-// Dynamic imports after this point see the Locko values in process.env
-const { DataSource } = await import("typeorm");
-const db = new DataSource({ url: process.env.DATABASE_URL });
-await db.initialize();
-```
-
-By default, existing `process.env` keys are **not** overwritten. Pass `{ override: true }` to change that:
-
-```ts
-await client.injectIntoEnv({ override: true });
-```
-
-### Fetching config manually
-
-If you prefer to work with the values directly rather than writing to `process.env`:
+Fetch your config and wire it up explicitly. This keeps your dependencies clear and your code testable.
 
 ```ts
 import { createClient } from "locko";
@@ -47,13 +23,28 @@ const client = createClient({ apiKey: process.env.LOCKO_API_KEY! });
 
 // All entries (secrets + plain variables) as a flat map
 const config = await client.getConfig();
-console.log(config.DATABASE_URL);
 
+const db = new DataSource({ url: config.DATABASE_URL });
+const redis = new Redis(config.REDIS_URL);
+```
+
+### Fetching specific subsets
+
+```ts
 // Only secret entries
 const secrets = await client.getSecrets();
 
 // Only plain (non-secret) variables
 const vars = await client.getVariables();
+```
+
+### Injecting into `process.env` (optional)
+
+If your codebase already reads broadly from `process.env` and you want Locko values to be picked up automatically, you can inject them in. Call this before any module that reads `process.env`.
+
+```ts
+await client.injectIntoEnv();          // won't overwrite existing keys
+await client.injectIntoEnv({ override: true }); // force-overwrite
 ```
 
 ## Configuration
