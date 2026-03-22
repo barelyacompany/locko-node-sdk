@@ -52,19 +52,9 @@ await client.injectIntoEnv({ override: true }); // force-overwrite
 
 ## Configuration
 
-| Option      | Type     | Required | Default                                         | Description                        |
-| ----------- | -------- | -------- | ----------------------------------------------- | ---------------------------------- |
-| `apiKey`    | `string` | Yes      | —                                               | Your Locko API key                 |
-| `serverUrl` | `string` | No       | `https://api-locko.barelyacompany.com/api`      | Override the Locko API base URL    |
-
-### Custom server URL
-
-```ts
-const client = createClient({
-  apiKey: process.env.LOCKO_API_KEY!,
-  serverUrl: "https://my-self-hosted-locko.example.com/api",
-});
-```
+| Option   | Type     | Required | Description            |
+| -------- | -------- | -------- | ---------------------- |
+| `apiKey` | `string` | Yes      | Your Locko API key     |
 
 ## API
 
