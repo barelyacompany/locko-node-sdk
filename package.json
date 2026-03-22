@@ -19,7 +19,7 @@
     "config",
     "environment"
   ],
-  "author": "Barely A Company",
+  "author": "tylerdgenius",
   "license": "MIT",
   "devDependencies": {
     "@types/jest": "^29.5.12",

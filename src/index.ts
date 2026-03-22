@@ -1,7 +1,6 @@
-const API_URL = "https://api-locko.barelyacompany.com/api/api-keys/config";
+export { VERSION } from "./version";
 
-/** Current version of the Locko Node SDK. */
-export const VERSION = "1.0.0"; // x-release-please-version
+const API_URL = "https://api-locko.barelyacompany.com/api/api-keys/config";
 
 /**
  * Represents a single config/secret entry returned by the Locko API.
