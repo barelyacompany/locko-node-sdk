@@ -21,6 +21,14 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           cache: "npm"
 
+      - name: Check version not already published
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          if npm view "locko@${VERSION}" version 2>/dev/null | grep -q .; then
+            echo "::error::Version ${VERSION} is already published on npm. Aborting."
+            exit 1
+          fi
+
       - name: Install dependencies
         run: npm ci
 
