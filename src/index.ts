@@ -131,7 +131,14 @@ export class LockoClient {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const entries = await this.fetchEntries(controller.signal);
+      const entries = await Promise.race([
+        this.fetchEntries(controller.signal),
+        new Promise<never>((_, reject) => {
+          controller.signal.addEventListener("abort", () =>
+            reject(new DOMException("The operation was aborted.", "AbortError"))
+          );
+        }),
+      ]);
       return { entries, warning: null };
     } catch (err) {
       const reason = controller.signal.aborted
