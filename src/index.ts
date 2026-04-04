@@ -1,9 +1,19 @@
 export { VERSION } from "./version";
 
+import { createLogger } from "./logger";
+import type { LockoLogger } from "./logger";
+
 export interface ConfigEntry {
   key: string;
   value: string;
-  secret: boolean;
+  value_type: string;
+  is_secret: boolean;
+}
+
+export interface ConfigMetadata {
+  contentHash: string;
+  environment: string;
+  service: string;
 }
 
 export class LockoApiError extends Error {
@@ -23,11 +33,31 @@ export interface GetConfigOptions {
 export interface LockoClientOptions {
   timeoutMs?: number;
   fetch?: typeof globalThis.fetch;
+  /** Override the API base URL (e.g. for staging). Defaults to https://api-locko.barelyacompany.com */
+  baseUrl?: string;
+  /** Service slug appended as ?service_slug=<value> — required for lko_ prefixed keys. */
+  serviceSlug?: string;
+  /** Enable debug logging. Can also be set via LOCKO_DEBUG=1 env var. */
+  debug?: boolean;
+}
+
+interface LockoApiPayload {
+  content_hash: string;
+  environment: string;
+  service: string;
+  data: ConfigEntry[];
+}
+
+interface LockoApiResponse {
+  success: boolean;
+  code: number;
+  message: string;
+  payload: LockoApiPayload;
 }
 
 type FetchResult =
-  | { entries: ConfigEntry[]; warning: null }
-  | { entries: null; warning: string };
+  | { entries: ConfigEntry[]; metadata: ConfigMetadata; warning: null }
+  | { entries: null; metadata: null; warning: string };
 
 export class LockoClient {
   private readonly apiKey: string;
@@ -35,22 +65,39 @@ export class LockoClient {
   private _cache: FetchResult | null = null;
   private readonly _prefetch: Promise<FetchResult>;
 
-  private readonly API_URL = "https://api-locko.barelyacompany.com/api/api-keys/config";
-  private readonly ERROR_PREFIX = "[Locko-Error]";
+  private readonly API_URL: string;
   private readonly DEFAULT_TIMEOUT_MS = 3_000;
-  private readonly logger: Console = console;
+  private readonly DEFAULT_BASE_URL = "https://api-locko.barelyacompany.com";
+  private readonly logger: LockoLogger;
   private readonly fetch: typeof globalThis.fetch;
 
   constructor(apiKey: string, options?: LockoClientOptions) {
     if (!apiKey || apiKey.trim() === "") {
-      const error = "apiKey is required";
-      this.logger.error(`${this.ERROR_PREFIX} ${error}`);
-      throw new Error(error);
+      throw new Error("apiKey is required");
+    }
+
+    const isOrgKey = apiKey.startsWith("lko_");
+    if (isOrgKey && (!options?.serviceSlug || options.serviceSlug.trim() === "")) {
+      throw new Error("serviceSlug is required for org API keys (lko_ prefix)");
     }
 
     this.apiKey = apiKey;
     this.timeoutMs = options?.timeoutMs ?? this.DEFAULT_TIMEOUT_MS;
     this.fetch = options?.fetch ?? globalThis.fetch;
+    this.logger = createLogger(options?.debug ?? false);
+
+    const base = (options?.baseUrl ?? this.DEFAULT_BASE_URL).replace(/\/$/, "");
+    const slug = options?.serviceSlug;
+    this.API_URL = `${base}/api/api-keys/config${slug ? `?service_slug=${encodeURIComponent(slug)}` : ""}`;
+
+    this.logger.log("Client initialized", {
+      url: this.API_URL,
+      keyPrefix: apiKey.slice(0, 8) + "… (masked)",
+      keyType: isOrgKey ? "org (lko_)" : "service (lk_)",
+      serviceSlug: slug ?? null,
+      timeoutMs: this.timeoutMs,
+    });
+
     this._prefetch = this.runPrefetch();
   }
 
@@ -80,7 +127,7 @@ export class LockoClient {
     if (!entries) return processEnvToMap();
 
     const result: Record<string, string> = {};
-    for (const entry of entries.filter((e) => e.secret)) {
+    for (const entry of entries.filter((e) => e.is_secret)) {
       const envVal = process.env[entry.key];
       result[entry.key] =
         options?.override || envVal === undefined ? entry.value : envVal;
@@ -95,12 +142,16 @@ export class LockoClient {
     if (!entries) return processEnvToMap();
 
     const result: Record<string, string> = {};
-    for (const entry of entries.filter((e) => !e.secret)) {
+    for (const entry of entries.filter((e) => !e.is_secret)) {
       const envVal = process.env[entry.key];
       result[entry.key] =
         options?.override || envVal === undefined ? entry.value : envVal;
     }
     return result;
+  }
+
+  getMetadata(): ConfigMetadata | null {
+    return this._cache?.metadata ?? null;
   }
 
   async injectIntoEnv(options?: { override?: boolean }): Promise<void> {
@@ -119,6 +170,7 @@ export class LockoClient {
     return (
       this._cache ?? {
         entries: null,
+        metadata: null,
         warning:
           "[Locko] getConfig() called before initialize() — " +
           "using process environment only. Call await client.initialize() at startup.",
@@ -131,7 +183,7 @@ export class LockoClient {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const entries = await Promise.race([
+      const { entries, metadata } = await Promise.race([
         this.fetchEntries(controller.signal),
         new Promise<never>((_, reject) => {
           controller.signal.addEventListener("abort", () =>
@@ -139,23 +191,31 @@ export class LockoClient {
           );
         }),
       ]);
-      return { entries, warning: null };
+      this.logger.log("Config loaded", {
+        entryCount: entries.length,
+        environment: metadata.environment,
+        service: metadata.service,
+      });
+      return { entries, metadata, warning: null };
     } catch (err) {
       const reason = controller.signal.aborted
         ? `request timed out after ${this.timeoutMs}ms`
         : err instanceof Error
           ? err.message
           : String(err);
-      return {
-        entries: null,
-        warning: `[Locko] Failed to fetch remote config — ${reason}. Falling back to process environment.`,
-      };
+      const warning = `[Locko] Failed to fetch remote config — ${reason}. Falling back to process environment.`;
+      this.logger.warn(warning);
+      return { entries: null, metadata: null, warning };
     } finally {
       clearTimeout(timer);
     }
   }
 
-  private async fetchEntries(signal?: AbortSignal): Promise<ConfigEntry[]> {
+  private async fetchEntries(
+    signal?: AbortSignal
+  ): Promise<{ entries: ConfigEntry[]; metadata: ConfigMetadata }> {
+    this.logger.log("Sending request", { url: this.API_URL, method: "GET" });
+
     let response: Response;
     try {
       response = await this.fetch(this.API_URL, {
@@ -168,8 +228,11 @@ export class LockoClient {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      this.logger.error("Network request failed", { message });
       throw new Error(`Locko: network request failed — ${message}`);
     }
+
+    this.logger.log("Response received", { status: response.status, ok: response.ok });
 
     if (!response.ok) {
       let body = "";
@@ -178,6 +241,7 @@ export class LockoClient {
       } catch {
       }
       const detail = body.trim() || response.statusText || "Unknown error";
+      this.logger.error("API error response", { status: response.status, detail });
       throw new LockoApiError(response.status, detail);
     }
 
@@ -185,16 +249,26 @@ export class LockoClient {
     try {
       data = await response.json();
     } catch {
+      this.logger.error("Failed to parse response as JSON");
       throw new Error("Locko: failed to parse API response as JSON.");
     }
 
-    if (!Array.isArray(data)) {
+    const parsed = data as LockoApiResponse;
+    if (!parsed?.payload || !Array.isArray(parsed.payload.data)) {
+      this.logger.error("Unexpected response shape", { data });
       throw new Error(
-        "Locko: unexpected API response shape — expected an array of config entries."
+        "Locko: unexpected API response shape — expected { payload: { data: [] } }."
       );
     }
 
-    return data as ConfigEntry[];
+    return {
+      entries: parsed.payload.data,
+      metadata: {
+        contentHash: parsed.payload.content_hash,
+        environment: parsed.payload.environment,
+        service: parsed.payload.service,
+      },
+    };
   }
 }
 

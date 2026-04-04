@@ -1,151 +1,208 @@
-# locko
+# @barelyacompany/locko
 
-Official Node.js SDK for [Locko](https://locko.barelyacompany.com) — a secrets and config management tool.
+Official Node.js SDK for [Locko](https://locko.barelyacompany.com) — secrets and config management.
 
 ## Requirements
 
-- Node.js 18 or later (uses native `fetch`)
+Node.js 18 or later (uses native `fetch`).
 
 ## Installation
 
 ```bash
-npm install locko
+npm install @barelyacompany/locko
 ```
 
 ## Quick start
 
-> **You need an API key to fetch config.** The API key is the one credential you must supply yourself — as a real environment variable, a CI secret, or a vault entry. It authenticates the request to Locko; it cannot come from Locko itself.
-
-Fetch your config and wire it up explicitly. This keeps your dependencies clear and your code testable.
+> **You need an API key to fetch config.** The API key is the one credential you must supply yourself — as a real environment variable, a CI secret, or a vault entry.
 
 ```ts
-import { createClient } from "locko";
+import { createClient } from "@barelyacompany/locko";
 
-// LOCKO_API_KEY must already be set before this runs
-const client = createClient({ apiKey: process.env.LOCKO_API_KEY! });
+const client = createClient(process.env.LOCKO_API_KEY!);
+await client.initialize();
 
 // All entries (secrets + plain variables) as a flat map
-const config = await client.getConfig();
+const config = client.getConfig();
 
 const db = new DataSource({ url: config.DATABASE_URL });
 const redis = new Redis(config.REDIS_URL);
 ```
 
-### Fetching specific subsets
+## API keys
+
+| Prefix | Scope | Extra requirement |
+|--------|-------|-------------------|
+| `lk_`  | Single service | None |
+| `lko_` | Org-wide | Must pass `serviceSlug` |
 
 ```ts
-// Only secret entries
-const secrets = await client.getSecrets();
-
-// Only plain (non-secret) variables
-const vars = await client.getVariables();
+// Org key — serviceSlug is required
+const client = createClient(process.env.LOCKO_API_KEY!, { serviceSlug: "my-service" });
 ```
-
-### Injecting into `process.env` (optional)
-
-If your codebase already reads broadly from `process.env` and you want Locko values to be picked up automatically, you can inject them in. Call this before any module that reads `process.env`.
-
-```ts
-await client.injectIntoEnv();          // won't overwrite existing keys
-await client.injectIntoEnv({ override: true }); // force-overwrite
-```
-
-## Configuration
-
-| Option   | Type     | Required | Description            |
-| -------- | -------- | -------- | ---------------------- |
-| `apiKey` | `string` | Yes      | Your Locko API key     |
 
 ## API
 
-### `createClient(options)` → `LockoClient`
+### `createClient(apiKey, options?)` → `LockoClient`
 
-Convenience factory that creates and returns a `LockoClient` instance.
-
----
-
-### `new LockoClient(options)`
-
-Constructs a new client. Throws synchronously if `apiKey` is empty or missing.
+Convenience factory. Throws synchronously if `apiKey` is empty or an `lko_` key is used without `serviceSlug`.
 
 ---
 
-### `client.getConfig()` → `Promise<Record<string, string>>`
+### `new LockoClient(apiKey, options?)`
 
-Fetches **all** config entries (both secrets and plain variables) and returns them as a flat `{ key: value }` map.
+Constructs a new client. The fetch is started immediately in the background.
+
+---
+
+### `await client.initialize()`
+
+Waits for the background fetch to complete and caches the result. Call this once at startup before reading config. Safe to call multiple times — subsequent calls are no-ops.
+
+---
+
+### `client.getConfig(options?)` → `Record<string, string>`
+
+Returns all config entries (secrets + variables) merged with `process.env`. `process.env` values win by default; pass `{ override: true }` to let Locko values win.
 
 ```ts
-const config = await client.getConfig();
-// { DATABASE_URL: "postgres://...", JWT_SECRET: "..." }
+const config = client.getConfig();
+const config = client.getConfig({ override: true }); // Locko wins
 ```
 
 ---
 
-### `client.getSecrets()` → `Promise<Record<string, string>>`
+### `client.getSecrets(options?)` → `Record<string, string>`
 
-Fetches config entries and returns only those where `secret: true`.
-
-```ts
-const secrets = await client.getSecrets();
-// { JWT_SECRET: "..." }
-```
+Returns only entries where `is_secret` is `true`.
 
 ---
 
-### `client.getVariables()` → `Promise<Record<string, string>>`
+### `client.getVariables(options?)` → `Record<string, string>`
 
-Fetches config entries and returns only those where `secret: false`.
+Returns only entries where `is_secret` is `false`.
+
+---
+
+### `client.getMetadata()` → `ConfigMetadata | null`
+
+Returns metadata from the last successful fetch, or `null` if the fetch failed or `initialize()` hasn't been called.
 
 ```ts
-const vars = await client.getVariables();
-// { DATABASE_URL: "postgres://...", PORT: "3000" }
+const meta = client.getMetadata();
+// { contentHash: "...", environment: "production", service: "my-service" }
 ```
 
 ---
 
 ### `client.injectIntoEnv(options?)` → `Promise<void>`
 
-Fetches all entries and writes them into `process.env`. Existing keys are not overwritten unless `{ override: true }` is passed.
+Writes all config entries into `process.env`. Existing keys are not overwritten unless `{ override: true }` is passed.
 
 ```ts
-await client.injectIntoEnv();          // safe — won't clobber existing env
-await client.injectIntoEnv({ override: true }); // force-overwrite everything
+await client.injectIntoEnv();                    // safe — won't clobber existing
+await client.injectIntoEnv({ override: true });  // force-overwrite
 ```
+
+---
+
+## Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `timeoutMs` | `number` | `3000` | Request timeout in milliseconds |
+| `baseUrl` | `string` | `https://api-locko.barelyacompany.com` | Override the API base URL |
+| `serviceSlug` | `string` | — | Service slug; required for `lko_` keys |
+| `debug` | `boolean` | `false` | Enable debug logging |
+| `fetch` | `typeof fetch` | `globalThis.fetch` | Custom fetch implementation |
+
+---
+
+## Fallback behaviour
+
+If the Locko API is unreachable (network failure, timeout, non-2xx response), all methods fall back to `process.env` and emit a console warning. Your app keeps running.
 
 ---
 
 ## Error handling
 
-The SDK throws two kinds of errors:
-
-| Error class    | When thrown                                                                 |
-| -------------- | --------------------------------------------------------------------------- |
-| `LockoApiError` | The API responded with a non-2xx HTTP status. Exposes a `statusCode` field. |
-| `Error`        | Network failure, or unexpected response shape.                              |
-
 ```ts
-import { createClient, LockoApiError } from "locko";
+import { createClient, LockoApiError } from "@barelyacompany/locko";
 
 try {
-  const config = await client.getConfig();
+  const client = createClient(process.env.LOCKO_API_KEY!);
+  await client.initialize();
 } catch (err) {
   if (err instanceof LockoApiError) {
     console.error(`API error ${err.statusCode}: ${err.message}`);
-  } else {
-    console.error("Network or parse error:", err);
   }
 }
 ```
 
+| Error class | When thrown |
+|-------------|-------------|
+| `LockoApiError` | Non-2xx HTTP response. Has `.statusCode: number`. |
+| `Error` | Empty `apiKey`, missing `serviceSlug` for `lko_` key, or unexpected response shape. |
+
+---
+
+## Debug logging
+
+Pass `debug: true` or set `LOCKO_DEBUG=1` (or `LOCKO_DEBUG=true`) in your environment:
+
+```bash
+LOCKO_DEBUG=1 node server.js
+```
+
+Errors are always logged regardless of the debug flag.
+
+---
+
+## Testing
+
+```bash
+npm test                 # unit tests
+npm run test:watch       # watch mode
+npm run test:coverage    # with coverage report
+npm run test:e2e         # E2E tests against the live API (requires env vars)
+```
+
+E2E tests require:
+
+```
+LOCKO_API_KEY=lk_...
+LOCKO_BASE_URL=https://api-locko.barelyacompany.com
+LOCKO_SERVICE_SLUG=my-service   # only for lko_ keys
+```
+
+E2E tests auto-skip when env vars are absent, so `npm test` is always safe to run without them.
+
+---
+
 ## TypeScript
 
-All types are included. The exported `ConfigEntry` interface mirrors the raw API response shape:
+All types are bundled. Key exported interfaces:
 
 ```ts
 interface ConfigEntry {
   key: string;
   value: string;
-  secret: boolean;
+  value_type: string;
+  is_secret: boolean;
+}
+
+interface ConfigMetadata {
+  contentHash: string;
+  environment: string;
+  service: string;
+}
+
+interface LockoClientOptions {
+  timeoutMs?: number;
+  baseUrl?: string;
+  serviceSlug?: string;
+  debug?: boolean;
+  fetch?: typeof globalThis.fetch;
 }
 ```
 
